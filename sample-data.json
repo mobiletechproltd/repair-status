@@ -1,0 +1,69 @@
+{
+  "shop": {
+    "shop_name": "Mobile Tech Pro LTD",
+    "address": "Find us on Google Maps",
+    "maps_url": "https://maps.app.goo.gl/MTwwrvZJNsjKyTPj6?g_st=ic",
+    "phones": "Ali Asghar: +44 7550 722762 | Shop Contact: +44 7344 544184",
+    "email": "mobiletechproltd@gmail.com",
+    "collection_policy": "Please collect your device within 14 days. We regret we cannot accept responsibility for items left uncollected beyond this period."
+  },
+  "tickets": [
+    {
+      "Token": "aB3dK9xQ1WudKgHMgaZ9A",
+      "Ticket": "1042",
+      "Date": "18/09/2026",
+      "Name": "John Smith",
+      "Model": "iPhone 12",
+      "Fault": "Screen replacement, Battery replacement",
+      "Status": "Ready for collection",
+      "Status Detail": "Your device is ready. Please visit the shop to collect it.",
+      "Total": "109.00",
+      "Paid": "109.00",
+      "Remaining": "0.00",
+      "Updated": "20/09/2026 17:42"
+    },
+    {
+      "Token": "xR7mN2qL8yUwPz1234567",
+      "Ticket": "1043",
+      "Date": "20/09/2026",
+      "Name": "Sarah Khan",
+      "Model": "Samsung A54",
+      "Fault": "Battery replacement",
+      "Status": "Repair in progress",
+      "Status Detail": "Our technician is working on your device now.",
+      "Total": "45.00",
+      "Paid": "25.00",
+      "Remaining": "20.00",
+      "Updated": "20/09/2026 16:10",
+      "Notes": "We also noticed your battery health is at 82% while replacing the screen.\nLet us know if you'd like a quote for that too -- no obligation."
+    },
+    {
+      "Token": "qP9wE3rT6yUiO0987654",
+      "Ticket": "1044",
+      "Date": "21/09/2026",
+      "Name": "Tom Baker",
+      "Model": "iPhone 14 Pro",
+      "Fault": "Diagnostic",
+      "Status": "Device received",
+      "Status Detail": "We've checked your device in and it's queued for repair.",
+      "Total": "Pending",
+      "Paid": "0.00",
+      "Remaining": "Pending",
+      "Updated": "21/09/2026 09:15"
+    },
+    {
+      "Token": "mK4pV8nZ2QwTs5678901",
+      "Ticket": "1040",
+      "Date": "15/09/2026",
+      "Name": "Emily Clarke",
+      "Model": "iPhone 13 mini",
+      "Fault": "Charging port repair",
+      "Status": "Collected",
+      "Status Detail": "You've collected your device. Thank you for choosing us.",
+      "Total": "65.00",
+      "Paid": "65.00",
+      "Remaining": "0.00",
+      "Updated": "17/09/2026 11:30"
+    }
+  ]
+}

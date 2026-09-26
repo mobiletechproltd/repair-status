@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<!--
+  Customer-facing repair tracking page. Standalone, no build step, no
+  backend of its own -- reads straight from two Google Sheets in the
+  visitor's own browser (Google's public "gviz" endpoint, works on any
+  Sheet shared as "Anyone with the link can view", no API key needed):
+    - Repairs sheet: one row per ticket, looked up by Token.
+    - Shop Details sheet: one small sheet, always uses the latest row.
+  See README.md for the local-testing setup and how to switch over to
+  the real Sheets once they exist.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Repair status</title>
+<style>
+  :root {
+    --accent: #2563eb;
+    --accent-bg: #eef2ff;
+    --bg: #f7f8fa;
+    --card: #fff;
+    --text: #14141a;
+    --muted: #6b7280;
+    --line: rgba(0, 0, 0, .07);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* A receipt-width column stays readable and correctly proportioned
+     at any screen size -- centered, not stretched edge-to-edge, on a
+     tablet or desktop; the small size bump at wider viewports is just
+     a bit more breathing room, not a different layout. */
+  .wrap { max-width: 480px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+  @media (min-width: 640px) {
+    .wrap { max-width: 520px; padding-top: 4rem; }
+  }
+  .header { text-align: center; margin-bottom: 2.25rem; }
+  /* No background frame -- matches the reference site exactly, which
+     shows the plain icon straight on the page with no box/shadow
+     behind it. Sized up a bit since there's no surrounding padding to
+     give it visual weight anymore. */
+  .icon-circle {
+    display: inline-flex; align-items: center; justify-content: center; color: var(--accent);
+    margin-bottom: 1rem;
+  }
+  .icon-circle svg { width: 64px; height: 64px; }
+  .shop-name { font-size: 1.75rem; font-weight: 700; letter-spacing: -.02em; margin: 0 0 .3rem; }
+  .shop-tagline { color: var(--muted); font-size: .95rem; margin: 0; }
+  /* Contact details stay a quiet, secondary reference -- a plain inset
+     list (no shadow, no elevation) so they read as "also available"
+     beneath the elevated status/ticket cards above, not competing for
+     attention. The card's own 1px border adds space before the first
+     row (and after the last) that a row-to-row divider doesn't, since
+     that divider's 1px is already absorbed inside the row above it --
+     trimming 1px off the first/last row's own padding keeps every gap
+     in the list on the same pixel. */
+  .contact-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+    padding: 0 1.1rem; margin-bottom: 1.1rem;
+  }
+  .contact-row {
+    display: flex; align-items: center; gap: .8rem; text-align: left;
+    padding: .85rem 0; border-bottom: 1px solid var(--line);
+    text-decoration: none; color: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .contact-row:first-child { padding-top: calc(.85rem - 1px); }
+  .contact-row:last-child { padding-bottom: calc(.85rem - 1px); border-bottom: 0; }
+  .contact-icon {
+    width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .contact-icon svg { width: 16px; height: 16px; }
+  /* Each contact type keeps its own recognisable colour instead of one
+     flat neutral tone -- WhatsApp green, mail blue, maps red -- same
+     "tinted badge" treatment as the shop icon above, just per-icon. */
+  .contact-icon--whatsapp { background: rgba(37, 211, 102, .14); color: #25d366; }
+  .contact-icon--email { background: var(--accent-bg); color: var(--accent); }
+  .contact-icon--location { background: rgba(234, 67, 53, .13); color: #ea4335; }
+  .contact-text { flex: 1; min-width: 0; }
+  .contact-title { font-weight: 600; font-size: .85rem; margin: 0; }
+  .contact-subtitle { color: var(--muted); font-size: .78rem; margin: .05rem 0 0; overflow-wrap: break-word; }
+  .contact-chevron { color: var(--muted); flex-shrink: 0; opacity: .5; }
+  .contact-chevron svg { width: 15px; height: 15px; }
+  .card {
+    background: var(--card); border: 1px solid rgba(0, 0, 0, .045); border-radius: 24px;
+    padding: 1.4rem 1.5rem; margin-bottom: 1.1rem;
+    box-shadow: 0 2px 24px -6px rgba(0, 0, 0, .07);
+  }
+  .card.accent {
+    color: #fff; padding: 1.6rem;
+  }
+  /* Status colour tracks progress, not just the step dots -- a
+     traffic-light read from "just dropped off" through to "done":
+     red -> orange -> green -> blue (the shop's own brand colour,
+     reused rather than a 5th new one, for the final "closed" state).
+     Deeper, muted tones on purpose -- the first pass used Apple's
+     fully-saturated system red/orange, which read as too bright/harsh
+     as a full-card background (fine as a small icon tint, not at this
+     size). Shadow glow toned down to match. */
+  .accent--received { background: #ea4335; border-color: #ea4335; box-shadow: 0 16px 36px -12px rgba(234, 67, 53, .35); }
+  .accent--progress { background: #d97706; border-color: #d97706; box-shadow: 0 16px 36px -12px rgba(217, 119, 6, .35); }
+  .accent--ready { background: #16a34a; border-color: #16a34a; box-shadow: 0 16px 36px -12px rgba(22, 163, 74, .35); }
+  .accent--collected { background: var(--accent); border-color: var(--accent); box-shadow: 0 16px 36px -12px rgba(37, 99, 235, .35); }
+  .status-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -.015em; margin: 0 0 .3rem; }
+  .status-detail { font-size: .95rem; line-height: 1.5; margin: 0; }
+  .card.accent .status-detail { opacity: .92; }
+  .steps { display: flex; gap: .4rem; margin: 0 0 1.4rem; }
+  .step { flex: 1; height: 7px; border-radius: 999px; background: rgba(255, 255, 255, .32); }
+  .step.on { background: #fff; }
+  .row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; font-size: .95rem;
+    padding: .7rem 0; border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row span:first-child { color: var(--muted); }
+  .row strong { font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* Small accent dot ahead of each fault line -- a checklist-style
+     marker instead of a bare label, still just the same fault text. */
+  .fault-row { justify-content: flex-start; gap: .65rem; }
+  .fault-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .section-label {
+    font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 .6rem;
+  }
+  /* A message the shop chose to leave for this specific customer --
+     shown only when the sheet's Notes cell for this ticket isn't
+     blank. white-space: pre-wrap so a multi-line note keeps its line
+     breaks instead of running together into one paragraph. */
+  .note-text { font-size: .95rem; line-height: 1.5; margin: 0; white-space: pre-wrap; }
+  .err { background: #fef2f2; color: #b91c1c; padding: 1.25rem 1.4rem; border-radius: 20px; text-align: center; font-size: .92rem; line-height: 1.5; }
+  /* Policy line, shown only if the shop has set one -- a bold,
+     visible notice card (not fine print) so a customer can't miss the
+     collection deadline, using the same accent tint as the rest of
+     the page rather than a new colour. */
+  .policy-note {
+    text-align: center; color: var(--accent); font-weight: 700; font-size: .88rem; line-height: 1.5;
+    background: var(--accent-bg); border-radius: 18px; padding: 1rem 1.25rem; margin: 1.1rem 0 0;
+  }
+  .foot { text-align: center; color: var(--muted); font-size: .78rem; margin-top: 1.75rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="root">
+    <div class="header">
+      <p class="status-detail">Loading your repair status…</p>
+    </div>
+  </div>
+</div>
+<script>
+// Flip to false once the real Sheets exist, and fill in the two IDs below.
+const USE_SAMPLE_DATA = true;
+const REPAIRS_SHEET_ID = "";
+const REPAIRS_SHEET_NAME = "Sheet1";
+const SHOP_SHEET_ID = "";
+const SHOP_SHEET_NAME = "Sheet1";
+
+// Used only when a phone number has no country code of its own (a
+// local "0..." number) -- change this for a shop outside the UK.
+const DEFAULT_COUNTRY_CODE = "44";
+
+// Exact markup pulled directly from mobiletechproltd.github.io's own
+// page source (view-source, not a redraw) -- a phone with a
+// magnifying glass, not a location pin as it first looked like at
+// icon size. Kept as literal hex colors matching the source exactly,
+// not currentColor/theme variables, so this stays a true copy
+// regardless of any theme changes here later.
+const PHONE_ICON = `<svg width="36" height="36" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <rect x="13" y="5" width="19" height="34" rx="4" fill="none" stroke="#2563eb" stroke-width="2.4"/>
+  <line x1="13" y1="31" x2="32" y2="31" stroke="#2563eb" stroke-width="2.4"/>
+  <circle cx="22.5" cy="35" r="1.4" fill="#2563eb"/>
+  <circle cx="35" cy="32" r="11" fill="#ffffff" stroke="#2563eb" stroke-width="2.4"/>
+  <path d="M31.5 35.5l3-3m0 0a2.6 2.6 0 10-3.6-3.6 2.6 2.6 0 003.6 3.6z" stroke="#2563eb" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+const WHATSAPP_ICON = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.32 2 11.66c0 1.97.63 3.8 1.72 5.32L2.5 21.5l4.7-1.15a10.3 10.3 0 0 0 4.8 1.2c5.52 0 10-4.32 10-9.66S17.52 2 12 2zm0 17.53c-1.5 0-2.9-.4-4.1-1.1l-.3-.17-2.8.68.7-2.63-.19-.3a7.86 7.86 0 0 1-1.28-4.35c0-4.4 3.68-7.96 8.17-7.96s7.97 3.56 7.97 7.96-3.68 7.96-8.17 7.96zm4.48-5.96c-.24-.12-1.44-.7-1.66-.78-.22-.08-.39-.12-.55.12-.16.24-.63.78-.78.94-.14.16-.29.18-.53.06-.24-.12-1.02-.37-1.94-1.19-.72-.63-1.2-1.42-1.35-1.66-.14-.24-.02-.37.1-.49.11-.11.24-.29.36-.43.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.55-1.31-.75-1.8-.2-.47-.4-.4-.55-.41h-.47c-.16 0-.42.06-.64.3-.22.24-.84.82-.84 2s.86 2.32.98 2.48c.12.16 1.7 2.58 4.11 3.62.57.25 1.02.4 1.37.5.58.18 1.1.16 1.51.1.46-.07 1.44-.59 1.64-1.16.2-.57.2-1.06.14-1.16-.06-.1-.22-.16-.46-.28z"/></svg>`;
+const EMAIL_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>`;
+const PIN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.5 7-12a7 7 0 1 0-14 0c0 4.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>`;
+const CHEVRON_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`;
+
+const STATUS_STEPS = {
+  "Device received": 1,
+  "Repair in progress": 2,
+  "Ready for collection": 3,
+  "Collected": 4,
+  "Waiting at the shop": 3,
+};
+
+// Which colour variant the status card takes at each stage -- keyed
+// the same way as STATUS_STEPS. Falls back to "accent--progress" for
+// any status this page doesn't specifically recognise.
+const STATUS_COLOR_CLASS = {
+  "Device received": "accent--received",
+  "Repair in progress": "accent--progress",
+  "Ready for collection": "accent--ready",
+  "Collected": "accent--collected",
+  "Waiting at the shop": "accent--ready",
+};
+
+function gvizUrl(sheetId, sheetName) {
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+}
+
+// Turns a Sheet column header into the same plain snake_case key this
+// page looks fields up by, regardless of how it was actually typed --
+// "Shop Name", "shop_name", "Shop  Name" all become "shop_name". The
+// Shop Details sheet is going to be built by hand later, not by this
+// page, so lookups shouldn't depend on getting the header's exact
+// spacing/capitalisation right.
+function normalizeKey(label) {
+  return String(label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+// gviz wraps its JSON in a JS function call instead of returning it
+// plain -- this strips that wrapper off before parsing. Each cell is
+// stored under both its literal column header (what the Repairs sheet
+// lookups like ticket.Token / ticket["Status Detail"] use) and its
+// normalized form (what the Shop Details lookups like shop.shop_name
+// use), so either sheet's header style works without the two having
+// to agree on a casing convention.
+function parseGvizResponse(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  const table = JSON.parse(text.slice(start, end + 1)).table;
+  const labels = table.cols.map((c) => c.label);
+  return table.rows.map((row) => {
+    const record = {};
+    row.c.forEach((cell, i) => {
+      const value = cell ? cell.v : "";
+      record[labels[i]] = value;
+      record[normalizeKey(labels[i])] = value;
+    });
+    return record;
+  });
+}
+
+async function loadSampleData() {
+  const res = await fetch("sample-data.json");
+  if (!res.ok) throw new Error("Could not load sample-data.json");
+  return res.json();
+}
+
+// Every field this page reads from the Shop Details sheet -- see
+// README.md for the expected column names.
+const SHOP_FIELDS = ["shop_name", "address", "maps_url", "phones", "email", "collection_policy"];
+
+async function loadShopDetails() {
+  if (USE_SAMPLE_DATA) {
+    return (await loadSampleData()).shop;
+  }
+  const rows = parseGvizResponse(await (await fetch(gvizUrl(SHOP_SHEET_ID, SHOP_SHEET_NAME))).text());
+  // A Form submission only carries the fields it actually asked
+  // about. Taking the newest row as-is would blank out anything the
+  // owner didn't re-enter this time, e.g. updating just the phone
+  // number would wipe the shop name if that row's shop_name cell came
+  // back empty. Instead, each field independently keeps the most
+  // recent row that actually had a value for it -- untouched fields
+  // stay exactly as they were.
+  const shop = {};
+  for (const field of SHOP_FIELDS) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const value = String(rows[i][field] || "").trim();
+      if (value) { shop[field] = value; break; }
+    }
+  }
+  return shop;
+}
+
+async function findTicket(token) {
+  const rows = USE_SAMPLE_DATA
+    ? (await loadSampleData()).tickets
+    : parseGvizResponse(await (await fetch(gvizUrl(REPAIRS_SHEET_ID, REPAIRS_SHEET_NAME))).text());
+  return rows.find((r) => r.Token === token) || null;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Any number of phone lines can live in one "Phones" cell, each written
+// as "Label: Number" and separated by "|" -- e.g. one shop might list
+// just a single number, another might list a manager's direct line
+// alongside a general shop line. Parsed here rather than requiring a
+// fixed set of phone columns in the Sheet.
+function parsePhones(text) {
+  return (text || "")
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const i = entry.indexOf(":");
+      return i === -1
+        ? { label: "", number: entry }
+        : { label: entry.slice(0, i).trim(), number: entry.slice(i + 1).trim() };
+    });
+}
+
+// wa.me needs the full international number: no "+", no leading local
+// trunk "0". A number already given with a "+" (or the "00"
+// international-access alternative to it) is trusted as already having
+// a country code; a plain local "0..." number gets that 0 swapped for
+// DEFAULT_COUNTRY_CODE.
+function whatsappUrl(number) {
+  const trimmed = number.trim();
+  if (trimmed.startsWith("+")) {
+    return `https://wa.me/${trimmed.replace(/[^\d]/g, "")}`;
+  }
+  const digits = trimmed.replace(/[^\d]/g, "");
+  if (digits.startsWith("00")) {
+    return `https://wa.me/${digits.slice(2)}`;
+  }
+  const normalized = digits.startsWith("0") ? DEFAULT_COUNTRY_CODE + digits.slice(1) : digits;
+  return `https://wa.me/${normalized}`;
+}
+
+function contactRow(icon, title, subtitle, href, type) {
+  return `
+    <a class="contact-row" href="${href}" target="_blank" rel="noopener">
+      <span class="contact-icon contact-icon--${type}">${icon}</span>
+      <span class="contact-text">
+        <p class="contact-title">${escapeHtml(title)}</p>
+        <p class="contact-subtitle">${escapeHtml(subtitle)}</p>
+      </span>
+      <span class="contact-chevron">${CHEVRON_ICON}</span>
+    </a>
+  `;
+}
+
+// Grouped into one quiet card under a section label, same as "What
+// we're fixing" -- a secondary reference, not content competing with
+// the actual repair status above it. Each icon keeps its own
+// recognisable brand colour (WhatsApp green, mail blue, maps red)
+// instead of one flat neutral tone.
+function renderContactCards(shop) {
+  const phoneRows = parsePhones(shop.phones)
+    .map((p) => contactRow(WHATSAPP_ICON, p.label || "WhatsApp", p.number, whatsappUrl(p.number), "whatsapp"))
+    .join("");
+  const emailRow = shop.email
+    ? contactRow(EMAIL_ICON, "Email Us", shop.email, `mailto:${shop.email}`, "email")
+    : "";
+  const mapsRow = shop.maps_url
+    ? contactRow(PIN_ICON, shop.address || "Find us on Google Maps", "Get directions", shop.maps_url, "location")
+    : "";
+  const rows = phoneRows + emailRow + mapsRow;
+  if (!rows) return "";
+  return `
+    <p class="section-label">Contact &amp; location</p>
+    <div class="contact-card">${rows}</div>
+  `;
+}
+
+function renderShopHeader(shop) {
+  return `
+    <div class="header">
+      <div class="icon-circle">${PHONE_ICON}</div>
+      <p class="shop-name">${escapeHtml(shop.shop_name || "Repair Shop")}</p>
+      <p class="shop-tagline">Repair status</p>
+    </div>
+  `;
+}
+
+function money(value) {
+  return value === "Pending" ? "Pending" : `£${escapeHtml(value)}`;
+}
+
+function renderTicket(ticket) {
+  const step = STATUS_STEPS[ticket.Status] || 2;
+  const colorClass = STATUS_COLOR_CLASS[ticket.Status] || "accent--progress";
+  const steps = [1, 2, 3, 4].map((n) => `<div class="step${n <= step ? " on" : ""}"></div>`).join("");
+  const faultRows = (ticket.Fault || "Diagnostic")
+    .split(",")
+    .map((f) => `<div class="row fault-row"><span class="fault-dot"></span><span>${escapeHtml(f.trim())}</span></div>`)
+    .join("");
+  const remainingRow = parseFloat(ticket.Remaining) > 0
+    ? `<div class="row"><span>Balance</span><strong>${money(ticket.Remaining)}</strong></div>`
+    : "";
+  // Blank Notes cell = nothing to say beyond the status above -- same
+  // "blank means don't show it" rule as everything else on this page
+  // (collection_policy, each contact row).
+  const notes = (ticket.Notes || "").trim();
+  const notesCard = notes
+    ? `
+    <div class="card">
+      <p class="section-label">Note from the shop</p>
+      <p class="note-text">${escapeHtml(notes)}</p>
+    </div>
+  `
+    : "";
+
+  return `
+    <div class="card accent ${colorClass}">
+      <div class="steps">${steps}</div>
+      <p class="status-title">${escapeHtml(ticket.Status)}</p>
+      <p class="status-detail">${escapeHtml(ticket["Status Detail"])}</p>
+    </div>
+    <div class="card">
+      <div class="row"><span>Ticket</span><strong>${escapeHtml(ticket.Ticket)}</strong></div>
+      <div class="row"><span>Device</span><strong>${escapeHtml(ticket.Model)}</strong></div>
+      <div class="row"><span>Total</span><strong>${money(ticket.Total)}</strong></div>
+      ${remainingRow}
+    </div>
+    <div class="card">
+      <p class="section-label">What we're fixing</p>
+      ${faultRows}
+    </div>
+    ${notesCard}
+  `;
+}
+
+function renderError(message) {
+  return `<div class="err">${escapeHtml(message)}</div>`;
+}
+
+// Optional per-shop collection policy (e.g. "collect within 14 days").
+// Not every shop will set one, so this renders nothing if the field is
+// blank rather than assuming a default -- the policy text and any time
+// window are entirely the shop's own wording, not this page's.
+function renderPolicyNote(shop) {
+  const policy = (shop.collection_policy || "").trim();
+  if (!policy) return "";
+  return `<p class="policy-note">${escapeHtml(policy)}</p>`;
+}
+
+function renderFooter(shop) {
+  const year = new Date().getFullYear();
+  return `<p class="foot">&copy; ${year} ${escapeHtml(shop.shop_name || "Repair Shop")}. All rights reserved.</p>`;
+}
+
+async function main() {
+  const root = document.getElementById("root");
+
+  let shop;
+  try {
+    shop = await loadShopDetails();
+  } catch (err) {
+    shop = { shop_name: "Shop details unavailable", address: "", phones: "", email: "" };
+  }
+
+  let bodyHtml;
+  try {
+    const token = new URLSearchParams(location.search).get("token");
+    if (!token) throw new Error("No ticket specified in this link.");
+    const ticket = await findTicket(token);
+    if (!ticket) throw new Error("This tracking link is invalid or expired. Please contact the shop with your ticket number.");
+    bodyHtml = renderTicket(ticket);
+    document.title = ticket.Status;
+  } catch (err) {
+    bodyHtml = renderError(err.message);
+  }
+
+  // Status first (the actual reason someone scanned the QR), contact
+  // details last -- a reference for if they need to reach the shop,
+  // not the main content of this particular page. The policy note (if
+  // the shop has set one) sits as fine print just above the copyright
+  // line, after everything a customer actually came here to see.
+  root.innerHTML = renderShopHeader(shop) + bodyHtml + renderContactCards(shop) + renderPolicyNote(shop) + renderFooter(shop);
+}
+
+main();
+</script>
+</body>
+</html>
