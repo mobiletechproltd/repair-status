@@ -157,12 +157,16 @@
   </div>
 </div>
 <script>
-// Flip to false once the real Sheets exist, and fill in the two IDs below.
-const USE_SAMPLE_DATA = true;
-const REPAIRS_SHEET_ID = "";
+const USE_SAMPLE_DATA = false;
+const REPAIRS_SHEET_ID = "1jcWLNVx2-Izx88vvDWYcX0dxYaUnk82Cf7e21yptea8";
 const REPAIRS_SHEET_NAME = "Sheet1";
-const SHOP_SHEET_ID = "";
+const SHOP_SHEET_ID = "1JpSdQuex3fO0YSo35eBHlOm6KUYC7AEOHPGxB6Vfe4o";
 const SHOP_SHEET_NAME = "Sheet1";
+
+// Fixed on purpose, not read from the Sheet -- the collection window is
+// a policy decision, not day-to-day shop data that should change just
+// because someone edits Shop Details in the app.
+const COLLECTION_POLICY = "Please collect your device within 14 days. We regret we cannot accept responsibility for items left uncollected beyond this period.";
 
 // Used only when a phone number has no country code of its own (a
 // local "0..." number) -- change this for a shop outside the UK.
@@ -208,7 +212,14 @@ const STATUS_COLOR_CLASS = {
 };
 
 function gvizUrl(sheetId, sheetName) {
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+  // headers=1 is explicit on purpose -- without it, gviz guesses whether
+  // row 1 is a header from the data's own type pattern, and guesses
+  // wrong on a small sheet (the Shop Details sheet is only ever a
+  // header row + one data row): it then returns "Shop Name", "Address"
+  // etc. as a DATA row instead of column labels, and every lookup below
+  // breaks silently. Forcing headers=1 makes this deterministic instead
+  // of depending on how much data happens to be in the sheet.
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&headers=1`;
 }
 
 // Turns a Sheet column header into the same plain snake_case key this
@@ -252,7 +263,7 @@ async function loadSampleData() {
 
 // Every field this page reads from the Shop Details sheet -- see
 // README.md for the expected column names.
-const SHOP_FIELDS = ["shop_name", "address", "maps_url", "phones", "email", "collection_policy"];
+const SHOP_FIELDS = ["shop_name", "address", "maps_url", "phones", "email"];
 
 async function loadShopDetails() {
   if (USE_SAMPLE_DATA) {
@@ -427,14 +438,10 @@ function renderError(message) {
   return `<div class="err">${escapeHtml(message)}</div>`;
 }
 
-// Optional per-shop collection policy (e.g. "collect within 14 days").
-// Not every shop will set one, so this renders nothing if the field is
-// blank rather than assuming a default -- the policy text and any time
-// window are entirely the shop's own wording, not this page's.
-function renderPolicyNote(shop) {
-  const policy = (shop.collection_policy || "").trim();
-  if (!policy) return "";
-  return `<p class="policy-note">${escapeHtml(policy)}</p>`;
+// Fixed policy line (COLLECTION_POLICY above), not read from the Sheet
+// -- see that constant's own comment for why.
+function renderPolicyNote() {
+  return `<p class="policy-note">${escapeHtml(COLLECTION_POLICY)}</p>`;
 }
 
 function renderFooter(shop) {
@@ -466,10 +473,10 @@ async function main() {
 
   // Status first (the actual reason someone scanned the QR), contact
   // details last -- a reference for if they need to reach the shop,
-  // not the main content of this particular page. The policy note (if
-  // the shop has set one) sits as fine print just above the copyright
-  // line, after everything a customer actually came here to see.
-  root.innerHTML = renderShopHeader(shop) + bodyHtml + renderContactCards(shop) + renderPolicyNote(shop) + renderFooter(shop);
+  // not the main content of this particular page. The fixed policy note
+  // sits as fine print just above the copyright line, after everything
+  // a customer actually came here to see.
+  root.innerHTML = renderShopHeader(shop) + bodyHtml + renderContactCards(shop) + renderPolicyNote() + renderFooter(shop);
 }
 
 main();

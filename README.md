@@ -20,35 +20,33 @@ reads two Google Sheets directly in the browser -- no server of its own:
   from the shop" message on the ticket's page, the one place on this
   page that's genuinely staff-written text shown to the customer, not
   just status/fault/payment data.
-- **Shop Details sheet** -- a small sheet the shop owner updates
-  through their own Google Form (built separately, not part of this
-  project). One row per submission; the page merges across all rows,
-  newest first, taking the most recent non-blank value *for each
-  field independently*. So submitting the Form again to change just
-  one thing (say, a phone number) won't blank out the shop name,
-  address, etc. if that submission left them empty -- only a field
-  that's actually answered ever overwrites the previous value.
+- **Shop Details sheet** -- a small sheet kept up to date by the same
+  shop-management system as the Repairs sheet (in this deployment,
+  DropFix pushes it directly from Tools > Shop Details -- no Form
+  involved). One fixed row, overwritten in place on every save, not
+  appended to.
 
 ### Shop Details sheet -- exact columns the page reads
 
-Whatever the Form ends up asking, its answers need to land in a Sheet
-with these column headers (case and spacing don't matter -- "Shop
-Name" and "shop_name" both work -- but keep the same words):
+Column headers (case and spacing don't matter -- "Shop Name" and
+"shop_name" both work -- but keep the same words):
 
 | Column | Required? | Example |
 |---|---|---|
 | `shop_name` | yes | `Mobile Tech Pro LTD` |
-| `address` | no -- cosmetic label only, shown above the maps link if set | `Find us on Google Maps` |
+| `address` | no -- cosmetic label only, shown above the maps link if set | `494 Hoe Street, London E17 9AH` |
 | `maps_url` | no -- maps row is hidden entirely if blank | `https://maps.app.goo.gl/...` |
-| `phones` | no -- phone rows hidden entirely if blank | `Ali Asghar: +44 7550 722762 \| Shop Contact: +44 7344 544184` |
+| `phones` | no -- phone rows hidden entirely if blank | `+44 7344 544184` |
 | `email` | no -- email row hidden entirely if blank | `shop@example.com` |
-| `collection_policy` | no -- notice hidden entirely if blank | `Please collect your device within 14 days...` |
 
 `phones` supports any number of lines in one cell: each `Label:
-Number` pair separated by `|`. Both the label and the number for each
-line are independently editable -- e.g. to change just the second
-number, retype the whole cell with only that number changed:
-`Ali Asghar: +44 7550 722762 | Shop Contact: +44 7999 999999`.
+Number` pair separated by `|` (a bare number with no `:` gets a
+generic "WhatsApp" label) -- e.g. `Manager: +44 7550 722762 | Shop:
++44 7344 544184`. Today this deployment only ever pushes one number.
+
+The collection-policy notice at the bottom of the page (`COLLECTION_POLICY`
+in `index.html`) is fixed in this page's own code on purpose, not read
+from either Sheet -- it's a policy decision, not day-to-day shop data.
 
 Nothing else on the page is Sheet-driven -- logo, colours, section
 labels ("What we're fixing", "Contact & location"), and layout are all
