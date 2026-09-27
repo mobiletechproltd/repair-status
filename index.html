@@ -110,6 +110,11 @@
   .accent--progress { background: #d97706; border-color: #d97706; box-shadow: 0 16px 36px -12px rgba(217, 119, 6, .35); }
   .accent--ready { background: #16a34a; border-color: #16a34a; box-shadow: 0 16px 36px -12px rgba(22, 163, 74, .35); }
   .accent--collected { background: var(--accent); border-color: var(--accent); box-shadow: 0 16px 36px -12px rgba(37, 99, 235, .35); }
+  /* Deliberately not red (implies "just started") and not the brand
+     blue (implies a successful close-out) -- a neutral slate for "this
+     one's over, but wasn't a repair", visually distinct from all four
+     progress colours above. */
+  .accent--not-repaired { background: #475569; border-color: #475569; box-shadow: 0 16px 36px -12px rgba(71, 85, 105, .35); }
   .status-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -.015em; margin: 0 0 .3rem; }
   .status-detail { font-size: .95rem; line-height: 1.5; margin: 0; }
   .card.accent .status-detail { opacity: .92; }
@@ -239,6 +244,7 @@ const STATUS_STEPS = {
   "Ready for collection": 3,
   "Collected": 4,
   "Waiting at the shop": 3,
+  "Not repaired": 4,
 };
 
 // Which colour variant the status card takes at each stage -- keyed
@@ -250,6 +256,7 @@ const STATUS_COLOR_CLASS = {
   "Ready for collection": "accent--ready",
   "Collected": "accent--collected",
   "Waiting at the shop": "accent--ready",
+  "Not repaired": "accent--not-repaired",
 };
 
 function gvizUrl(sheetId, sheetName) {
