@@ -172,6 +172,47 @@ const COLLECTION_POLICY = "Please collect your device within 14 days. We regret 
 // local "0..." number) -- change this for a shop outside the UK.
 const DEFAULT_COUNTRY_CODE = "44";
 
+// Shown INSTANTLY on page load, before any network request -- a brand
+// new visitor's browser has nothing cached yet, so this is the only
+// thing that can make a genuinely first-ever visit feel fast. The real
+// Shop Details Sheet fetch always runs anyway and corrects this within
+// well under a second if anything here is out of date; only shop-level
+// details ever get this treatment, never the ticket's own status/fault/
+// balance, which must always be a live look-up. Update this by hand if
+// the shop's name/phone/email/maps link changes -- same maintenance the
+// business card site's own DEFAULTS already accepts.
+const DEFAULT_SHOP = {
+  shop_name: "Mobile Tech Pro LTD",
+  address: "494 Hoe Street, London E17 9AH",
+  phones: "+447344544184",
+  email: "mobiletechproltd@gmail.com",
+  maps_url: "https://maps.app.goo.gl/oy5d5FyJ6T1APpUJ7?g_st=ic",
+};
+
+// After the very first successful live fetch on a given device, the
+// real result is cached here so a REPEAT visit (same customer checking
+// again, or the shop testing) shows genuinely current shop details
+// instantly instead of falling back to the hardcoded default above --
+// still followed by a fresh background fetch either way.
+const SHOP_CACHE_KEY = "dropfix_tracker_shop_v1";
+
+function loadCachedShop() {
+  try {
+    const raw = localStorage.getItem(SHOP_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null; // private browsing, storage blocked, etc. -- just skip the cache
+  }
+}
+
+function saveCachedShop(shop) {
+  try {
+    localStorage.setItem(SHOP_CACHE_KEY, JSON.stringify(shop));
+  } catch {
+    // Storage unavailable -- next visit just falls back to DEFAULT_SHOP again, not fatal.
+  }
+}
+
 // Exact markup pulled directly from mobiletechproltd.github.io's own
 // page source (view-source, not a redraw) -- a phone with a
 // magnifying glass, not a location pin as it first looked like at
@@ -449,34 +490,61 @@ function renderFooter(shop) {
   return `<p class="foot">&copy; ${year} ${escapeHtml(shop.shop_name || "Repair Shop")}. All rights reserved.</p>`;
 }
 
+// Shop header/contact/footer all depend only on `shop`, and all three
+// need re-rendering together whenever it changes (first the cached-or-
+// default guess, then again once the real fetch resolves) -- kept as
+// one function so those two moments can't drift out of sync with each
+// other.
+function renderShop(shop) {
+  document.getElementById("shop-header").innerHTML = renderShopHeader(shop);
+  document.getElementById("shop-contact").innerHTML = renderContactCards(shop);
+  document.getElementById("shop-footer").innerHTML = renderFooter(shop);
+}
+
 async function main() {
   const root = document.getElementById("root");
 
-  let shop;
-  try {
-    shop = await loadShopDetails();
-  } catch (err) {
-    shop = { shop_name: "Shop details unavailable", address: "", phones: "", email: "" };
-  }
+  // Everything renders in its final position immediately, synchronously,
+  // no network wait at all -- shop-header/contact/footer start with the
+  // cached-or-default guess (replaced the moment the real fetch lands),
+  // the ticket section starts on its loading message (this one is never
+  // defaulted -- it's the actual reason someone scanned the code, and
+  // must always be genuinely live).
+  root.innerHTML = `
+    <div id="shop-header"></div>
+    <div id="ticket-body">
+      <div class="header"><p class="status-detail">Loading your repair status…</p></div>
+    </div>
+    <div id="shop-contact"></div>
+    ${renderPolicyNote()}
+    <div id="shop-footer"></div>
+  `;
+  renderShop(loadCachedShop() || DEFAULT_SHOP);
 
-  let bodyHtml;
+  // These two run independently, not one after the other -- the ticket
+  // look-up (what the customer actually came here for) no longer waits
+  // on the shop-details fetch to finish first.
+  loadShopDetails()
+    .then((shop) => {
+      renderShop(shop);
+      saveCachedShop(shop);
+    })
+    .catch(() => {
+      // Real fetch failed -- leave whatever's already showing (cache or
+      // default) rather than replacing it with an error; that's still a
+      // better shop card than a blank one or a scary error.
+    });
+
   try {
     const token = new URLSearchParams(location.search).get("token");
     if (!token) throw new Error("No ticket specified in this link.");
     const ticket = await findTicket(token);
     if (!ticket) throw new Error("This tracking link is invalid or expired. Please contact the shop with your ticket number.");
-    bodyHtml = renderTicket(ticket);
+    document.getElementById("ticket-body").innerHTML = renderTicket(ticket);
     document.title = ticket.Status;
   } catch (err) {
-    bodyHtml = renderError(err.message);
+    document.getElementById("ticket-body").innerHTML = renderError(err.message);
   }
-
-  // Status first (the actual reason someone scanned the QR), contact
-  // details last -- a reference for if they need to reach the shop,
-  // not the main content of this particular page. The fixed policy note
-  // sits as fine print just above the copyright line, after everything
-  // a customer actually came here to see.
-  root.innerHTML = renderShopHeader(shop) + bodyHtml + renderContactCards(shop) + renderPolicyNote() + renderFooter(shop);
 }
 
 main();
