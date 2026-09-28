@@ -446,9 +446,10 @@ function renderTicket(ticket) {
     .split(",")
     .map((f) => `<div class="row fault-row"><span class="fault-dot"></span><span>${escapeHtml(f.trim())}</span></div>`)
     .join("");
-  const remainingRow = parseFloat(ticket.Remaining) > 0
-    ? `<div class="row"><span>Balance</span><strong>${money(ticket.Remaining)}</strong></div>`
-    : "";
+  // Always shown, even at zero -- a customer who paid in full at drop-off
+  // otherwise sees no confirmation at all that their payment went through
+  // (Total shows, but nothing else money-related ever did).
+  const remainingRow = `<div class="row"><span>Balance</span><strong>${money(ticket.Remaining)}</strong></div>`;
   // Blank Notes cell = nothing to say beyond the status above -- same
   // "blank means don't show it" rule as everything else on this page
   // (collection_policy, each contact row).
